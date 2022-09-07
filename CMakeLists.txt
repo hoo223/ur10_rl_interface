@@ -18,7 +18,6 @@ find_package(catkin REQUIRED COMPONENTS
   moveit_ros_planning
   moveit_ros_planning_interface
   moveit_visual_tools
-  omni_msgs
   pcl_conversions
   pcl_ros
   pluginlib
