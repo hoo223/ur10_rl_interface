@@ -54,7 +54,7 @@ class UR10Env(gym.Env, EzPickle):
 
     def __init__(self, prefix='unity', FPS=100):
 
-        ob_dim = 12
+        ob_dim = 6
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(ob_dim,), dtype=np.float32)
         self.continuous = True
         if self.continuous:
@@ -80,7 +80,8 @@ class UR10Env(gym.Env, EzPickle):
         self.task_action_pub = rospy.Publisher(prefix+'/rsa_command', Float64MultiArray, queue_size=10)
         
         ## subscriber -> ros init 다음에
-        joint_state_subscriber = rospy.Subscriber(prefix+"/joint_states", JointState, callback=self.joint_state_callback, queue_size=10)
+        #joint_state_subscriber = rospy.Subscriber(prefix+"/joint_states", JointState, callback=self.joint_state_callback, queue_size=10)
+        cartesian_state_subscriber = rospy.Subscriber(prefix+"/current_pose_rpy", Float64MultiArray, callback=self.cartesian_state_callback, queue_size=10)
         m_index_subscriber = rospy.Subscriber(prefix+"/m_index", Float64, callback=self.m_index_callback, queue_size=10)
         self_collision_subscriber = rospy.Subscriber(prefix+"/self_collision", Bool, callback=self.self_collision_callback, queue_size=10)
         ik_falied_subscriber = rospy.Subscriber(prefix+"/ik_failed", Bool, callback=self.ik_failed_callback, queue_size=10)
@@ -93,15 +94,16 @@ class UR10Env(gym.Env, EzPickle):
 
         print("Env Loaded!")
 
-
-    def joint_state_callback(self, data):
-        self._state = np.array(data.position + data.velocity)
-        self._state_time = data.header.stamp
-        # now = rospy.Time.now()
-        # self.tf_listener.waitForTransform(self.base, self.end, now, rospy.Duration(5.0));
-        # position, quaternion = self.tf_listener.lookupTransform(self.base, self.end, now)
-        # self.tip_position = position
-        # self._additional_state_callback()
+    # def joint_state_callback(self, data):
+    #     pos = list(data.position)
+    #     vel = list(data.velocity)
+    #     del pos[1]
+    #     del vel[1]
+    #     self._state = np.array(pos + vel)
+    #     self._state_time = data.header.stamp
+    
+    def cartesian_state_callback(self, data):
+        self._state = np.array(data.data)
 
     def m_index_callback(self, data):
         self.m_index = data.data
@@ -113,9 +115,7 @@ class UR10Env(gym.Env, EzPickle):
         self.ik_failed = data.data
 
     def step(self, action):
-        print(action)
         data = action.tolist()
-        print(data)
         data.append(-1.0)
         self.action_msg.data = data
         ## publich the action message
@@ -136,7 +136,7 @@ class UR10Env(gym.Env, EzPickle):
         end_ros_time = rospy.Time.now()
         #print(end_ros_time - start_ros_time)
         ## update state
-        rospy.wait_for_message(self.prefix+"/joint_states", JointState)
+        rospy.wait_for_message(self.prefix+"/current_pose_rpy", Float64MultiArray)
         ob_next = self._state
 
         ## update reward
