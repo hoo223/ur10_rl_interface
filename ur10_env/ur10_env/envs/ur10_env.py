@@ -10,14 +10,10 @@ from gym import spaces
 ## ros library
 import rospy
 import tf
-from gazebo_msgs.srv import SetModelConfiguration
-from std_srvs.srv import Empty, Trigger, TriggerResponse
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray, Float64, Bool
-from tf2_msgs.msg import TFMessage
 
 ## custom library
-from ur10_python_interface.msg import Ellipsoid3
 #sys.path.append("/root/catkin_ws/src/ur10_python_interface/scripts") # 필요한 python 파일이 있는 경로 추가
 
 # mode
@@ -25,7 +21,7 @@ INIT = 0
 TELEOP = 1
 TASK_CONTROL = 2
 JOINT_CONTROL = 3
-RL = 4
+RSA = 4
 MOVEIT = 5
 IDLE = 6
 
@@ -54,9 +50,9 @@ class UR10Env(gym.Env, EzPickle):
                 state: Joint position and time derivaties of the last state.
 
     """
-    metadata = {'render.modes': ['human']}
+    # metadata = {'render.modes': ['human']}
 
-    def __init__(self, FPS=1100):
+    def __init__(self, prefix='unity', FPS=100):
 
         ob_dim = 12
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(ob_dim,), dtype=np.float32)
@@ -71,54 +67,57 @@ class UR10Env(gym.Env, EzPickle):
             rospy.init_node('ur10_env', anonymous=True)
         except:
             print("Already initializaed!")
-            
+        
+        self.prefix = prefix
+        self.FPS = FPS
         self.period = rospy.Duration(1./FPS)
         self.rate = rospy.Rate(FPS)
         self._state = None
         self.singular_threshold = 0.03
         self.action_msg = Float64MultiArray()
-        
-        # ## check gazebo 
-        # try:
-        #     rospy.wait_for_service("/gazebo/pause_physics", timeout=0.01)
-        #     print("gazebo on!")
-        #     # rospy.init_node("node_gym")
-        # except rospy.exceptions.ROSException:
-        #     self.launch(self.main_launch_path).start(auto_terminate=True)
 
         ## publisher
-        self.task_action_pub = rospy.Publisher('/joystick_command', Float64MultiArray, queue_size=10)
-        #self.joint_action_pub = rospy.Publisher('/ik_result', Float64MultiArray, queue_size=10)
-
+        self.task_action_pub = rospy.Publisher(prefix+'/rsa_command', Float64MultiArray, queue_size=10)
+        
         ## subscriber -> ros init 다음에
-        joint_state_subscriber = rospy.Subscriber("/joint_states", JointState, callback=self.joint_state_callback, queue_size=10)
-        self_collision_subscriber = rospy.Subscriber("self_collision", Bool, callback=self.self_collision_callback, queue_size=10)
-
+        joint_state_subscriber = rospy.Subscriber(prefix+"/joint_states", JointState, callback=self.joint_state_callback, queue_size=10)
+        m_index_subscriber = rospy.Subscriber(prefix+"/m_index", Float64, callback=self.m_index_callback, queue_size=10)
+        self_collision_subscriber = rospy.Subscriber(prefix+"/self_collision", Bool, callback=self.self_collision_callback, queue_size=10)
+        ik_falied_subscriber = rospy.Subscriber(prefix+"/ik_failed", Bool, callback=self.ik_failed_callback, queue_size=10)
+    
         ## tf listener
-        self.base = "base_link"
-        self.end = "tool_gripper" 
+        self.base = prefix+"/base_link"
+        self.end = prefix+"/tool_gripper" 
         now = rospy.Time.now()
         self.tf_listener = tf.TransformListener()
 
         print("Env Loaded!")
 
-        ## reset env
-        #self._reset()
-
 
     def joint_state_callback(self, data):
         self._state = np.array(data.position + data.velocity)
+        self._state_time = data.header.stamp
         # now = rospy.Time.now()
         # self.tf_listener.waitForTransform(self.base, self.end, now, rospy.Duration(5.0));
         # position, quaternion = self.tf_listener.lookupTransform(self.base, self.end, now)
         # self.tip_position = position
         # self._additional_state_callback()
 
+    def m_index_callback(self, data):
+        self.m_index = data.data
+
     def self_collision_callback(self, data):
         self.self_collision = data.data
+        
+    def ik_failed_callback(self, data):
+        self.ik_failed = data.data
 
     def step(self, action):
-        self.action_msg.data = action 
+        print(action)
+        data = action.tolist()
+        print(data)
+        data.append(-1.0)
+        self.action_msg.data = data
         ## publich the action message
         self.task_action_pub.publish(self.action_msg) 
         start_ros_time = rospy.Time.now()
@@ -131,49 +130,55 @@ class UR10Env(gym.Env, EzPickle):
                     rospy.sleep(self.period-elapsed_time)
                     break
             else:
-                rospy.sleep(self.period/100.0)        
-        #self.rate.sleep()
+                rospy.sleep(self.period/100.0)
+            #self.rate.sleep()
 
+        end_ros_time = rospy.Time.now()
+        #print(end_ros_time - start_ros_time)
         ## update state
-        rospy.wait_for_message("/joint_states", JointState)
+        rospy.wait_for_message(self.prefix+"/joint_states", JointState)
         ob_next = self._state
 
         ## update reward
         reward = self._get_reward(ob_next)
 
         ## update done
-        if reward <= -999:
+        if (reward <= -999):
             done = True
         else:
             done = False
+            
+        info = None
 
-        return (ob_next, reward, done)
+        return (ob_next, reward, done, info)
 
 
-    def start_teleop_client(self):
+    def start_client(self):
         rospy.set_param(self.prefix+'/mode', TASK_CONTROL) 
 
     def reset(self):
         rospy.set_param(self.prefix+'/mode', INIT) 
-
-
+        rospy.sleep(2)
+        rospy.set_param(self.prefix+'/mode', RSA) 
+        
     def _get_reward(self, state):
         """ Reward implementation"""
         reward = 0
-
-        rospy.wait_for_message('self_collision', Bool)
+        #rospy.wait_for_message('self_collision', Bool)
         self_collision = self.self_collision
+        ik_failed = self.ik_failed
+        m_index = self.m_index
         
-        # penalty for self collision
-        if self_collision == True:
+        # penalty for self collision and ik failure
+        if (self_collision == True) or (ik_failed == True) or (m_index < 0.03):
             reward -= 1000
-            print("self collision")
-           
-        # reward for time
-        reward += 1
-        print(reward)
+            #print("self collision")
+        else:  
+            # reward for time
+            reward = 0
+            
         return reward
 
     def close(self):
-        pass
+        rospy.set_param(self.prefix+'/mode', INIT) 
 
