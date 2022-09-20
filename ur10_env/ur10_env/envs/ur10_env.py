@@ -13,9 +13,6 @@ import tf
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray, Float64, Bool
 
-## custom library
-#sys.path.append("/root/catkin_ws/src/ur10_python_interface/scripts") # 필요한 python 파일이 있는 경로 추가
-
 # mode
 INIT = 0
 TELEOP = 1
@@ -53,12 +50,12 @@ class UR10Env(gym.Env, EzPickle):
     # metadata = {'render.modes': ['human']}
 
     def __init__(self, prefix='unity', FPS=100):
-
         ob_dim = 6
+        action_dim = 1
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(ob_dim,), dtype=np.float32)
         self.continuous = True
         if self.continuous:
-            self.action_space = spaces.Box(-1, +1, (6,), dtype=np.float32)
+            self.action_space = spaces.Box(-1, +1, (action_dim,), dtype=np.float32)
         else:
             self.action_space = spaces.Discrete(64)
 
@@ -115,8 +112,13 @@ class UR10Env(gym.Env, EzPickle):
         self.ik_failed = data.data
 
     def step(self, action):
-        data = action.tolist()
-        data.append(-1.0)
+        data = action.tolist() # x
+        data.append(0.0) # y
+        data.append(0.0) # z 
+        data.append(0.0) # roll
+        data.append(0.0) # pitch
+        data.append(0.0) # yaw
+        data.append(-1.0) # button
         self.action_msg.data = data
         ## publich the action message
         self.task_action_pub.publish(self.action_msg) 
@@ -148,7 +150,7 @@ class UR10Env(gym.Env, EzPickle):
         else:
             done = False
             
-        info = None
+        info = {}
 
         return (ob_next, reward, done, info)
 
@@ -160,6 +162,7 @@ class UR10Env(gym.Env, EzPickle):
         rospy.set_param(self.prefix+'/mode', INIT) 
         rospy.sleep(2)
         rospy.set_param(self.prefix+'/mode', RSA) 
+        return self._state
         
     def _get_reward(self, state):
         """ Reward implementation"""
