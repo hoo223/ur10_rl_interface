@@ -55,7 +55,7 @@ class UR10Env(gym.Env, EzPickle):
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(ob_dim,), dtype=np.float32)
         self.continuous = True
         if self.continuous:
-            self.action_space = spaces.Box(-1, +1, (action_dim,), dtype=np.float32)
+            self.action_space = spaces.Box(-1.5, +1.5, (action_dim,), dtype=np.float32)
         else:
             self.action_space = spaces.Discrete(64)
 
