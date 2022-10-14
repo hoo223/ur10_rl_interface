@@ -72,6 +72,7 @@ class UR10Env(gym.Env, EzPickle):
         self._state = None
         self.singular_threshold = 0.03
         self.action_msg = Float64MultiArray()
+        self.accumlated_rewards = 0
 
         ## publisher
         self.task_action_pub = rospy.Publisher(prefix+'/rsa_command', Float64MultiArray, queue_size=10)
@@ -143,10 +144,14 @@ class UR10Env(gym.Env, EzPickle):
 
         ## update reward
         reward = self._get_reward(ob_next)
+        self.accumlated_rewards += reward
 
         ## update done
-        if (reward <= -999):
+        # if (reward <= -999):
+        #     done = True
+        if (self.accumlated_rewards > 10000) or (self.accumlated_rewards < -999):
             done = True
+            self.accumlated_rewards = 0
         else:
             done = False
             
@@ -178,7 +183,7 @@ class UR10Env(gym.Env, EzPickle):
             #print("self collision")
         else:  
             # reward for time
-            reward = 0
+            reward += 1
             
         return reward
 
